@@ -1,0 +1,37 @@
+name: Auto Update Whitelist
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天 UTC 0点 (北京时间早上8点) 自动运行
+  workflow_dispatch:    # 允许手动点击运行
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        pip install requests
+
+    - name: Run fetch script
+      # 直接运行根目录下的 Python 脚本
+      run: python fetch_list.py
+
+    - name: Commit and push if changed
+      run: |
+        git config --global user.name 'GitHub Action'
+        git config --global user.email 'action@github.com'
+        git add games_list.txt
+        # 如果文件有变化就提交，没变化就不提交
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update game list" && git push)
