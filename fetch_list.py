@@ -3,118 +3,140 @@ import json
 import re
 import time
 
-# PCGamingWiki API
-API_URL = "https://www.pcgamingwiki.com/w/api.php"
+# ==========================================
+# 1. 内置核心库 (保证热门游戏 100% 准确)
+# 这些是 API 经常猜错，或者一定要保证支持的大作
+# ==========================================
+MANUAL_FIXES = {
+    # 格式: "游戏名关键字": "准确的exe名"
+    "red dead redemption 2": "rdr2.exe",
+    "cyberpunk 2077": "cyberpunk2077.exe",
+    "elden ring": "eldenring.exe",
+    "call of duty": "cod.exe", # 现代战争等
+    "doom eternal": "doometernalx64vk.exe",
+    "god of war": "gow.exe",
+    "horizon zero dawn": "horizonzerodawn.exe",
+    "forza horizon 5": "forzahorizon5.exe",
+    "forza horizon 4": "forzahorizon4.exe",
+    "halo infinite": "haloinfinite.exe",
+    "resident evil village": "re8.exe",
+    "resident evil 4": "re4.exe",
+    "resident evil 2": "re2.exe",
+    "resident evil 3": "re3.exe",
+    "devil may cry 5": "dmc5.exe",
+    "monster hunter rise": "mhrise.exe",
+    "monster hunter world": "monsterhunterworld.exe",
+    "assassin's creed valhalla": "acvalhalla.exe",
+    "assassin's creed odyssey": "acodyssey.exe",
+    "far cry 6": "farcry6.exe",
+    "hitman 3": "hitman3.exe",
+    "spiderman remastered": "spider-man.exe",
+    "miles morales": "spider-man-miles.exe",
+    "uncharted": "u4.exe",
+    "last of us": "tlou-i.exe",
+    "witcher 3": "witcher3.exe",
+    "shadow of the tomb raider": "sottr.exe",
+    "death stranding": "ds.exe",
+    "final fantasy vii remake": "ff7remake.exe",
+    "black myth wukong": "b1-win64-shipping.exe", # 黑神话
+    "ratchet and clank": "riftapart.exe",
+    "returnal": "returnal.exe",
+    "starfield": "starfield.exe",
+    "hogwarts legacy": "hogwartslegacy.exe",
+    "alan wake 2": "alanwake2.exe",
+    "baldur's gate 3": "bg3.exe"
+}
 
-# 伪装头
+# ==========================================
+# 2. API 配置
+# ==========================================
+API_URL = "https://www.pcgamingwiki.com/w/api.php"
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Referer': 'https://www.pcgamingwiki.com/'
 }
 
-# 正则表达式
-EXE_PATTERN = re.compile(r'[\w\-\.]+\.exe', re.IGNORECASE)
-
-def fetch_hdr_games():
-    """
-    【策略变更】
-    不再使用 cargoquery (容易被封)，改用 list=categorymembers。
-    我们直接拉取 "Category:Games_with_high_dynamic_range_support" 分类下的所有页面。
-    这是 Wiki 最基础的功能，几乎不会被拦截。
-    """
-    print("Step 1: 正在通过【分类列表】扫描 HDR 游戏...")
+def fetch_from_api():
+    """尝试从 Wiki 获取更多游戏"""
+    print("正在尝试联网获取新游戏列表...")
     
-    # 基础参数
+    # 使用 CargoQuery 获取原生 HDR 游戏
     params = {
-        "action": "query",
+        "action": "cargoquery",
         "format": "json",
-        "list": "categorymembers",
-        "cmtitle": "Category:Games_with_high_dynamic_range_support",
-        "cmlimit": "500", # 一次取500个
-        "cmtype": "page"  # 只看页面，不看子分类
+        "tables": "Video",
+        "fields": "_pageName=Name", 
+        "where": "Video.HDR HOLDS LIKE '%true%'", # 只要支持HDR的
+        "limit": "300" 
     }
     
-    games_list = []
-    continue_token = None
-    
-    while True:
-        # 处理翻页
-        if continue_token:
-            params["cmcontinue"] = continue_token
-            
-        try:
-            print(f"Requesting batch... (Current count: {len(games_list)})")
-            response = requests.get(API_URL, params=params, headers=HEADERS, timeout=30)
-            
-            if response.status_code != 200:
-                print(f"Error: Status {response.status_code}")
-                break
+    found_names = []
+    try:
+        response = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
+        data = response.json()
+        
+        if "cargoquery" in data:
+            for item in data["cargoquery"]:
+                found_names.append(item["title"]["Name"])
+                
+        print(f"API 成功返回了 {len(found_names)} 个游戏名。")
+    except Exception as e:
+        print(f"API 连接部分失败 (使用本地库兜底): {e}")
+        
+    return found_names
 
-            data = response.json()
-            
-            # 检查是否有数据
-            if "query" in data and "categorymembers" in data["query"]:
-                for item in data["query"]["categorymembers"]:
-                    games_list.append(item["title"])
-            else:
-                print("Warning: 返回数据中没有 categorymembers")
-                print(data) # 打印出来看看是啥
-                break
-
-            # 检查是否有下一页
-            if "continue" in data:
-                continue_token = data["continue"]["cmcontinue"]
-            else:
-                break # 没有下一页了，结束
-            
-            time.sleep(1) # 礼貌延迟
-            
-        except Exception as e:
-            print(f"Exception: {e}")
-            break
-            
-    return games_list
-
-def find_exe_in_wikitext(game_name):
-    # 简单的直接返回逻辑，减少请求量，避免二次触发防火墙
-    # 如果想更精准，可以保留之前的逻辑，但为了先跑通，我们简化它
+def smart_convert(game_name):
+    """
+    智能转换逻辑：
+    1. 先查字典 (Manual Fixes)
+    2. 查不到再用算法猜
+    """
+    lower_name = game_name.lower()
     
-    # 尝试简单的转换：Remove spaces + .exe
-    heuristic = re.sub(r'[^a-zA-Z0-9]', '', game_name).lower() + ".exe"
-    
-    # 这里我们只对非常热门的做特殊查询，其他的直接用猜的
-    # 这样可以大幅减少 API 请求次数 (从几百次减少到0次)，避免超时
-    return heuristic
+    # 1. 优先匹配人工校准库
+    for key, val in MANUAL_FIXES.items():
+        if key in lower_name:
+            return val
+            
+    # 2. 算法猜测 (去空格 + .exe)
+    # 比如 "Sea of Thieves" -> "seaofthieves.exe" (通常是准的)
+    clean_name = re.sub(r'[^a-zA-Z0-9]', '', lower_name)
+    return f"{clean_name}.exe"
 
 if __name__ == "__main__":
-    games = fetch_hdr_games()
+    # 1. 收集所有游戏名
+    all_game_names = set()
     
-    if len(games) == 0:
-        print("【错误】依然没有获取到数据。启用紧急保底名单。")
-        # 如果真的全挂了，写入几个最常见的游戏，保证软件不报错
-        games = ["Elden Ring", "Cyberpunk 2077", "Red Dead Redemption 2", "Forza Horizon 5", "Call of Duty"]
-    else:
-        print(f"成功获取到 {len(games)} 个游戏标题！")
-
-    print(f"\nStep 2: 正在转换 Exe 名称...")
+    # 加入 API 抓取到的
+    api_games = fetch_from_api()
+    for g in api_games:
+        all_game_names.add(g)
+        
+    # 加入手动库里的 Key (确保即使 API 挂了，这些游戏也能被处理)
+    for k in MANUAL_FIXES.keys():
+        all_game_names.add(k)
+        
+    print(f"合并后共有 {len(all_game_names)} 个游戏条目等待处理...")
     
+    # 2. 转换为 exe
     final_exe_list = set()
     
-    for game in games:
-        # 为了确保成功率，这次我们只用“猜测算法”
-        # 虽然不如爬源码精准，但它不需要发请求，绝对不会被封 IP
-        exe_name = re.sub(r'[^a-zA-Z0-9]', '', game).lower() + ".exe"
-        final_exe_list.add(exe_name)
+    for game in all_game_names:
+        exe = smart_convert(game)
+        final_exe_list.add(exe)
         
-        # 手动补全几个特殊的大作 (防止猜错)
-        if "cyberpunk" in exe_name: final_exe_list.add("cyberpunk2077.exe")
-        if "reddead" in exe_name: final_exe_list.add("rdr2.exe")
-        if "modernwarfare" in exe_name: final_exe_list.add("cod.exe")
+    # 3. 再次强制注入手动库的 Value (双重保险)
+    # 防止因为某种算法原因把手动库漏了
+    for correct_exe in MANUAL_FIXES.values():
+        final_exe_list.add(correct_exe)
+
+    # 4. 保存
+    sorted_list = sorted(list(final_exe_list))
+    print(f"最终生成 {len(sorted_list)} 个有效进程白名单！")
     
-    print(f"\nStep 3: 保存 {len(final_exe_list)} 条数据...")
     with open("games_list.txt", "w", encoding="utf-8") as f:
-        for exe in sorted(final_exe_list):
+        for exe in sorted_list:
             f.write(exe + "\n")
             
-    print("✅ 成功完成！")
+    print("✅ database 更新完成。")
