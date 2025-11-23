@@ -7,7 +7,7 @@
 ---
 
 <a name="english"></a>
-## 🇬🇧 English
+## English
 
 ### Introduction
 This repository serves as the central database for **AutoGameHDR**. It hosts an automatically updated list of PC games that support **Native HDR**.
@@ -25,7 +25,7 @@ This list is designed to be consumed by the [AutoGameHDR](https://github.com/sys
 ---
 
 <a name="chinese"></a>
-## 🇨🇳 中文
+## 中文
 
 ### 简介
 本仓库是 **AutoGameHDR** 软件的核心数据库。它托管了一份自动更新的列表，包含了所有支持 **原生 HDR (Native HDR)** 的 PC 游戏进程名。
