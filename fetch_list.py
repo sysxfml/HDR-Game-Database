@@ -6,11 +6,16 @@ import time
 # PCGamingWiki API
 API_URL = "https://www.pcgamingwiki.com/w/api.php"
 
-# 正则表达式：专门用来从 Wiki 源码中提取 .exe
+# 【修复点】添加身份标识，防止被服务器当成恶意攻击拦截
+HEADERS = {
+    'User-Agent': 'AutoGameHDR-Scraper/1.0 (github.com/sysxfml; Open Source Project)',
+    'Accept': 'application/json'
+}
+
+# 正则表达式
 EXE_PATTERN = re.compile(r'[\w\-\.]+\.exe', re.IGNORECASE)
 
 def fetch_hdr_games():
-    """第一步：获取所有支持 HDR 的游戏列表"""
     print("Step 1: 正在扫描 HDR 游戏列表...")
     
     params = {
@@ -28,7 +33,14 @@ def fetch_hdr_games():
     while True:
         params["offset"] = offset
         try:
-            response = requests.get(API_URL, params=params, timeout=10)
+            # 【修复点】这里加入了 headers=HEADERS
+            response = requests.get(API_URL, params=params, headers=HEADERS, timeout=30)
+            
+            # 调试信息：如果请求失败，打印状态码
+            if response.status_code != 200:
+                print(f"Warning: API returned status code {response.status_code}")
+                break
+
             data = response.json()
             
             if "cargoquery" not in data or len(data["cargoquery"]) == 0:
@@ -39,6 +51,7 @@ def fetch_hdr_games():
                 name = game_info["Name"]
                 hdr_status = game_info["HDR"]
                 
+                # 排除不支持的
                 if "false" in hdr_status.lower() or "hack" in hdr_status.lower():
                     continue
                     
@@ -47,6 +60,9 @@ def fetch_hdr_games():
             offset += 500
             print(f" - 已发现 {len(games_list)} 个游戏...")
             
+            # 稍微慢一点，防止太快被封
+            time.sleep(1)
+            
         except Exception as e:
             print(f"Error fetching list: {e}")
             break
@@ -54,7 +70,6 @@ def fetch_hdr_games():
     return games_list
 
 def find_exe_in_wikitext(game_name):
-    """第二步：深度挖掘——下载游戏页面源码，寻找真实的 exe 名字"""
     params = {
         "action": "query",
         "prop": "revisions",
@@ -64,7 +79,8 @@ def find_exe_in_wikitext(game_name):
     }
     
     try:
-        resp = requests.get(API_URL, params=params, timeout=5)
+        # 【修复点】这里也加入了 headers=HEADERS
+        resp = requests.get(API_URL, params=params, headers=HEADERS, timeout=10)
         data = resp.json()
         
         pages = data.get("query", {}).get("pages", {})
@@ -90,12 +106,16 @@ def find_exe_in_wikitext(game_name):
     return None
 
 def heuristic_convert(game_name):
-    """保底方案：如果抓不到，就用猜的 (去空格+exe)"""
     clean_name = re.sub(r'[^a-zA-Z0-9]', '', game_name)
     return f"{clean_name}.exe".lower()
 
 if __name__ == "__main__":
     games = fetch_hdr_games()
+    
+    if len(games) == 0:
+        print("错误：未找到任何游戏，请检查 API 连接或 User-Agent。")
+        exit(1) # 让 Actions 报错停止，而不是生成空文件
+
     print(f"\nStep 2: 正在深度解析 {len(games)} 个游戏的 Exe 名称...")
     
     final_exe_list = set()
@@ -104,7 +124,8 @@ if __name__ == "__main__":
     
     for game in games:
         count += 1
-        if count % 100 == 0:
+        # 每10个打印一次进度，减少日志量
+        if count % 10 == 0:
             print(f"进度: {count}/{total}")
 
         real_exe = find_exe_in_wikitext(game)
@@ -114,7 +135,7 @@ if __name__ == "__main__":
         else:
             final_exe_list.add(heuristic_convert(game))
             
-        time.sleep(0.05)
+        time.sleep(0.1)
     
     print(f"\nStep 3: 正在保存 {len(final_exe_list)} 个唯一进程名...")
     with open("games_list.txt", "w", encoding="utf-8") as f:
