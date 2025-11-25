@@ -2,141 +2,193 @@ import requests
 import json
 import re
 import time
+import sys
 
 # ==========================================
-# 1. 内置核心库 (保证热门游戏 100% 准确)
-# 这些是 API 经常猜错，或者一定要保证支持的大作
-# ==========================================
-MANUAL_FIXES = {
-    # 格式: "游戏名关键字": "准确的exe名"
-    "red dead redemption 2": "rdr2.exe",
-    "cyberpunk 2077": "cyberpunk2077.exe",
-    "elden ring": "eldenring.exe",
-    "call of duty": "cod.exe", # 现代战争等
-    "doom eternal": "doometernalx64vk.exe",
-    "god of war": "gow.exe",
-    "horizon zero dawn": "horizonzerodawn.exe",
-    "forza horizon 5": "forzahorizon5.exe",
-    "forza horizon 4": "forzahorizon4.exe",
-    "halo infinite": "haloinfinite.exe",
-    "resident evil village": "re8.exe",
-    "resident evil 4": "re4.exe",
-    "resident evil 2": "re2.exe",
-    "resident evil 3": "re3.exe",
-    "devil may cry 5": "dmc5.exe",
-    "monster hunter rise": "mhrise.exe",
-    "monster hunter world": "monsterhunterworld.exe",
-    "assassin's creed valhalla": "acvalhalla.exe",
-    "assassin's creed odyssey": "acodyssey.exe",
-    "far cry 6": "farcry6.exe",
-    "hitman 3": "hitman3.exe",
-    "spiderman remastered": "spider-man.exe",
-    "miles morales": "spider-man-miles.exe",
-    "uncharted": "u4.exe",
-    "last of us": "tlou-i.exe",
-    "witcher 3": "witcher3.exe",
-    "shadow of the tomb raider": "sottr.exe",
-    "death stranding": "ds.exe",
-    "final fantasy vii remake": "ff7remake.exe",
-    "black myth wukong": "b1-win64-shipping.exe", # 黑神话
-    "ratchet and clank": "riftapart.exe",
-    "returnal": "returnal.exe",
-    "starfield": "starfield.exe",
-    "hogwarts legacy": "hogwartslegacy.exe",
-    "alan wake 2": "alanwake2.exe",
-    "baldur's gate 3": "bg3.exe"
-}
-
-# ==========================================
-# 2. API 配置
+# 配置区域
 # ==========================================
 API_URL = "https://www.pcgamingwiki.com/w/api.php"
+
+# 伪装成浏览器，防止被拦截
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Referer': 'https://www.pcgamingwiki.com/'
 }
 
-def fetch_from_api():
-    """尝试从 Wiki 获取更多游戏"""
-    print("正在尝试联网获取新游戏列表...")
+# 正则表达式：专门匹配 Wiki 源码中的路径部分
+# 例子: {{Path|Windows|Steam|...|Game.exe}}
+EXE_PATH_PATTERN = re.compile(r'\{\{Path\|.*?\|(.*?\.exe)\}\}', re.IGNORECASE)
+# 备用正则：匹配任意 .exe 结尾的单词
+SIMPLE_EXE_PATTERN = re.compile(r'[\w\-\.]+\.exe', re.IGNORECASE)
+
+# 人工校准库 (优先级最高)
+MANUAL_FIXES = {
+    "red dead redemption 2": "rdr2.exe",
+    "cyberpunk 2077": "cyberpunk2077.exe",
+    "elden ring": "eldenring.exe",
+    "call of duty": "cod.exe",
+    "doom eternal": "doometernalx64vk.exe",
+    "god of war": "gow.exe",
+    "forza horizon 5": "forzahorizon5.exe",
+    "halo infinite": "haloinfinite.exe",
+    "black myth wukong": "b1-win64-shipping.exe",
+    "starfield": "starfield.exe",
+    "hogwarts legacy": "hogwartslegacy.exe",
+    "alan wake 2": "alanwake2.exe",
+    "baldur's gate 3": "bg3.exe",
+    "control": "control.exe",
+    "death stranding": "ds.exe",
+    "destiny 2": "destiny2.exe",
+    "f1 22": "f1_22.exe",
+    "f1 23": "f1_23.exe",
+    "final fantasy xv": "ffxv_s.exe",
+    "gears 5": "gears5.exe",
+    "genshin impact": "genshinimpact.exe",
+    "hitman 3": "hitman3.exe",
+    "metro exodus": "metroexodus.exe",
+    "monster hunter rise": "mhrise.exe",
+    "no man's sky": "nomanssky.exe",
+    "resident evil 2": "re2.exe",
+    "resident evil 3": "re3.exe",
+    "resident evil 4": "re4.exe",
+    "resident evil village": "re8.exe",
+    "spider-man remastered": "spider-man.exe",
+    "miles morales": "spider-man-miles.exe",
+    "the last of us part i": "tlou-i.exe",
+    "uncharted: legacy of thieves collection": "u4.exe",
+    "watch dogs: legion": "watchdogslegion.exe",
+    "witcher 3": "witcher3.exe"
+}
+
+# 垃圾过滤词
+BLACKLIST_EXE = ["setup.exe", "installer.exe", "unins000.exe", "config.exe", "crashreporter.exe", "unitycrashhandler64.exe", "dxsetup.exe"]
+
+def fetch_hdr_game_names():
+    """第一步：获取所有支持 HDR 的游戏名称列表"""
+    print("Step 1: 正在扫描 HDR 游戏列表 (使用 Category 接口)...")
     
-    # 使用 CargoQuery 获取原生 HDR 游戏
     params = {
-        "action": "cargoquery",
+        "action": "query",
         "format": "json",
-        "tables": "Video",
-        "fields": "_pageName=Name", 
-        "where": "Video.HDR HOLDS LIKE '%true%'", # 只要支持HDR的
-        "limit": "300" 
+        "list": "categorymembers",
+        "cmtitle": "Category:Games_with_high_dynamic_range_support",
+        "cmlimit": "500",
+        "cmtype": "page"
     }
     
-    found_names = []
-    try:
-        response = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
-        data = response.json()
-        
-        if "cargoquery" in data:
-            for item in data["cargoquery"]:
-                found_names.append(item["title"]["Name"])
-                
-        print(f"API 成功返回了 {len(found_names)} 个游戏名。")
-    except Exception as e:
-        print(f"API 连接部分失败 (使用本地库兜底): {e}")
-        
-    return found_names
-
-def smart_convert(game_name):
-    """
-    智能转换逻辑：
-    1. 先查字典 (Manual Fixes)
-    2. 查不到再用算法猜
-    """
-    lower_name = game_name.lower()
+    games_list = []
+    continue_token = None
     
-    # 1. 优先匹配人工校准库
-    for key, val in MANUAL_FIXES.items():
-        if key in lower_name:
-            return val
+    while True:
+        if continue_token: params["cmcontinue"] = continue_token
             
-    # 2. 算法猜测 (去空格 + .exe)
-    # 比如 "Sea of Thieves" -> "seaofthieves.exe" (通常是准的)
-    clean_name = re.sub(r'[^a-zA-Z0-9]', '', lower_name)
+        try:
+            response = requests.get(API_URL, params=params, headers=HEADERS, timeout=30)
+            if response.status_code != 200: break
+            data = response.json()
+            
+            if "query" in data and "categorymembers" in data["query"]:
+                for item in data["query"]["categorymembers"]:
+                    games_list.append(item["title"])
+            
+            if "continue" in data:
+                continue_token = data["continue"]["cmcontinue"]
+            else:
+                break
+            time.sleep(0.5)
+        except:
+            break
+            
+    print(f" -> 共发现 {len(games_list)} 个游戏条目。")
+    return games_list
+
+def deep_scan_exe_name(game_name):
+    """第二步：下载网页源码，正则提取 .exe"""
+    
+    # 1. 先查字典
+    for key, val in MANUAL_FIXES.items():
+        if key.lower() == game_name.lower():
+            return val
+
+    # 2. 查字典没查到，开始爬取源码
+    params = {
+        "action": "query",
+        "prop": "revisions",
+        "rvprop": "content", # 获取源码
+        "titles": game_name,
+        "format": "json"
+    }
+    
+    try:
+        resp = requests.get(API_URL, params=params, headers=HEADERS, timeout=10)
+        data = resp.json()
+        
+        pages = data.get("query", {}).get("pages", {})
+        for page_id in pages:
+            if "revisions" in pages[page_id]:
+                content = pages[page_id]["revisions"][0]["*"]
+                
+                # 策略 A: 搜索 {{Path|...|Game.exe}} 这种高可信度标签
+                path_matches = EXE_PATH_PATTERN.findall(content)
+                if path_matches:
+                    # 过滤垃圾
+                    valid_matches = [m for m in path_matches if m.lower() not in BLACKLIST_EXE]
+                    if valid_matches:
+                        # 找到最长的一个通常是最准确的完整文件名
+                        return max(valid_matches, key=len)
+
+                # 策略 B: 如果没找到 Path 标签，搜索全文里的 .exe
+                simple_matches = SIMPLE_EXE_PATTERN.findall(content)
+                if simple_matches:
+                    valid_matches = [
+                        m for m in simple_matches 
+                        if m.lower() not in BLACKLIST_EXE 
+                        and "redist" not in m.lower()
+                        and "directx" not in m.lower()
+                    ]
+                    if valid_matches:
+                        # 统计出现频率最高的 exe
+                        return max(set(valid_matches), key=valid_matches.count)
+    except:
+        pass
+    
+    # 3. 实在抓不到，只能猜了
+    clean_name = re.sub(r'[^a-zA-Z0-9]', '', game_name).lower()
     return f"{clean_name}.exe"
 
 if __name__ == "__main__":
-    # 1. 收集所有游戏名
-    all_game_names = set()
+    all_games = fetch_hdr_game_names()
     
-    # 加入 API 抓取到的
-    api_games = fetch_from_api()
-    for g in api_games:
-        all_game_names.add(g)
-        
-    # 加入手动库里的 Key (确保即使 API 挂了，这些游戏也能被处理)
-    for k in MANUAL_FIXES.keys():
-        all_game_names.add(k)
-        
-    print(f"合并后共有 {len(all_game_names)} 个游戏条目等待处理...")
-    
-    # 2. 转换为 exe
-    final_exe_list = set()
-    
-    for game in all_game_names:
-        exe = smart_convert(game)
-        final_exe_list.add(exe)
-        
-    # 3. 再次强制注入手动库的 Value (双重保险)
-    # 防止因为某种算法原因把手动库漏了
-    for correct_exe in MANUAL_FIXES.values():
-        final_exe_list.add(correct_exe)
+    # 如果 API 彻底挂了，至少保证 Manual Fixes 里的游戏能用
+    if not all_games:
+        print("【警告】API 获取失败，仅使用内置列表。")
+        all_games = list(MANUAL_FIXES.keys())
 
-    # 4. 保存
-    sorted_list = sorted(list(final_exe_list))
-    print(f"最终生成 {len(sorted_list)} 个有效进程白名单！")
+    final_set = set()
     
+    # 强制添加内置列表的 Value (exe名)
+    for val in MANUAL_FIXES.values():
+        final_set.add(val.lower())
+
+    print(f"\nStep 2: 深度解析 {len(all_games)} 个游戏 (这就比较慢了，请耐心等待)...")
+    
+    count = 0
+    for game in all_games:
+        count += 1
+        if count % 10 == 0:
+            print(f"进度: {count}/{len(all_games)}...")
+            
+        exe = deep_scan_exe_name(game)
+        if exe:
+            final_set.add(exe.lower())
+            
+        # 稍微慢一点，防止触发 429 Too Many Requests
+        time.sleep(0.2)
+
+    print(f"\nStep 3: 写入文件，共 {len(final_set)} 个有效进程...")
     with open("games_list.txt", "w", encoding="utf-8") as f:
-        for exe in sorted_list:
+        for exe in sorted(final_set):
             f.write(exe + "\n")
             
-    print("✅ database 更新完成。")
+    print("✅ 更新完成。")
