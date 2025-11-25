@@ -2,11 +2,10 @@ import requests
 import json
 import re
 import time
+import os
 
 # ==========================================
-# 1. 超大内置核心库 (自带干粮)
-# 既然 API 容易挂，我们把目前市面上主流 HDR 游戏全部预置进去
-# 这保证了软件发布时，哪怕断网也是好用的
+# 1. 内置核心库 (硬编码数据，优先级最高)
 # ==========================================
 MANUAL_DATA = {
     # --- 热门大作 ---
@@ -108,13 +107,30 @@ HEADERS = {
     'Referer': 'https://www.pcgamingwiki.com/'
 }
 
+# ==========================================
+#  核心逻辑函数
+# ==========================================
+
+def read_existing_list(filename):
+    """读取现有的 TXT 文件，防止覆盖手动添加的条目"""
+    existing = set()
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                for line in f:
+                    clean_line = line.strip()
+                    if clean_line:
+                        existing.add(clean_line.lower())
+            print(f"Step 0: 读取到现有本地库包含 {len(existing)} 个条目。")
+        except Exception as e:
+            print(f"Warning: 读取旧文件失败 ({e})，将创建新文件。")
+    else:
+        print("Step 0: 未找到旧文件，将创建新文件。")
+    return existing
+
 def fetch_hdr_games_lightweight():
-    """
-    轻量级抓取：只获取游戏名字，不进详情页。
-    这通常不会被封锁。
-    """
+    """联网获取"""
     print("Step 1: 尝试轻量级联网获取新游戏...")
-    
     params = {
         "action": "query",
         "format": "json",
@@ -123,9 +139,7 @@ def fetch_hdr_games_lightweight():
         "cmlimit": "500",
         "cmtype": "page"
     }
-    
     games_found = []
-    
     try:
         response = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
         if response.status_code == 200:
@@ -135,51 +149,57 @@ def fetch_hdr_games_lightweight():
                     games_found.append(item["title"])
             print(f" -> 联网成功！获取到 {len(games_found)} 个游戏标题。")
         else:
-            print(f" -> 联网失败 (状态码 {response.status_code})。将使用内置离线库。")
+            print(f" -> 联网失败 (状态码 {response.status_code})。跳过联网步骤。")
     except Exception as e:
-        print(f" -> 联网出错 ({e})。将使用内置离线库。")
-        
+        print(f" -> 联网出错 ({e})。跳过联网步骤。")
     return games_found
 
 def guess_exe_name(game_name):
-    """算法猜测：去掉空格和特殊符号"""
     clean = re.sub(r'[^a-zA-Z0-9]', '', game_name).lower()
     return f"{clean}.exe"
 
+# ==========================================
+#  主程序
+# ==========================================
 if __name__ == "__main__":
-    # 1. 准备最终集合
-    final_exe_set = set()
+    # 1. 初始化集合：先读旧文件！(核心修改)
+    final_exe_set = read_existing_list("games_list.txt")
     
-    # 2. 先装填内置的 Manual Data (这些是最准的)
-    print(f"Step 0: 加载内置核心库 ({len(MANUAL_DATA)} 个)...")
+    # 2. 强制合并内置库 (Manual Data)
+    print(f"Step 2: 合并内置核心库 ({len(MANUAL_DATA)} 个)...")
     for exe in MANUAL_DATA.values():
         final_exe_set.add(exe.lower())
         
-    # 3. 尝试联网补充
+    # 3. 尝试联网并合并
     online_games = fetch_hdr_games_lightweight()
-    
-    # 4. 处理联网数据 (如果有)
     if online_games:
-        print(f"Step 2: 正在合并联网数据...")
+        print(f"Step 3: 正在合并联网数据...")
         for game in online_games:
-            # 先看内置库里有没有，有就跳过（因为内置库的exe更准）
+            # 检查是否已经在集合里了（无论是来自旧文件还是内置库）
+            # 如果已经有了，就不猜了，防止猜错覆盖了正确的手动数据
+            # 这里我们只对“完全未知”的游戏进行猜测
+            
+            # 简单检查逻辑：
+            # 如果内置库里有这个游戏名，跳过
             is_known = False
             for key in MANUAL_DATA.keys():
                 if key in game.lower():
                     is_known = True
                     break
             
-            # 如果是新游戏，才进行猜测
             if not is_known:
                 guess = guess_exe_name(game)
-                final_exe_set.add(guess)
+                # 只有当这个猜出来的名字不在集合里时，才加进去
+                # 这样如果你手动添加了正确的名字，脚本猜的错误名字就不会覆盖它
+                if guess not in final_exe_set:
+                    final_exe_set.add(guess)
     
-    # 5. 保存
+    # 4. 排序并保存
     sorted_list = sorted(list(final_exe_set))
-    print(f"\nStep 3: 最终生成 {len(sorted_list)} 个白名单进程！")
+    print(f"\nStep 4: 最终生成 {len(sorted_list)} 个白名单进程！")
     
     with open("games_list.txt", "w", encoding="utf-8") as f:
         for exe in sorted_list:
             f.write(exe + "\n")
             
-    print("✅ 数据库更新完成。")
+    print("✅ 数据库更新完成 (已保留手动修改)。")
