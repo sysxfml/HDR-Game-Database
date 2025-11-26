@@ -73,6 +73,7 @@ spider-man-miles.exe
 spider-man.exe
 starfield.exe
 starrail.exe
+SB-Win64-Shipping.exe
 thedivision2.exe
 tlou-i.exe
 u4.exe
