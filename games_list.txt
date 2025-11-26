@@ -53,6 +53,8 @@ metroexodus.exe
 mhrise.exe
 monsterhunterworld.exe
 nba2k24.exe
+nba2k25.exe
+nba2k26.exe
 nfs_unbound.exe
 nfsheat.exe
 nomanssky.exe
