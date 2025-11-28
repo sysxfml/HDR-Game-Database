@@ -81,5 +81,3 @@ warframe.x64.exe
 watchdogslegion.exe
 witcher3.exe
 wonderlands.exe
-ForzaHorizon4.exe
-ForzaHorizon5.exe
