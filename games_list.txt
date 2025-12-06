@@ -138,3 +138,4 @@ witcher3.exe
 wonderlands.exe
 wrcg.exe
 yuna.exe
+NINJAGAIDEN4-WinGDK.exe
