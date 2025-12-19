@@ -133,7 +133,6 @@ tlou-i.exe
 u4.exe
 vanguard.exe
 sora_1st.exe
-
 warframe.x64.exe
 watch_dogs2.exe
 watchdogslegion.exe
