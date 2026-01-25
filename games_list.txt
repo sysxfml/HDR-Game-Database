@@ -3,7 +3,6 @@ acodyssey.exe
 acorigins.exe
 acvalhalla.exe
 afop.exe
-ai.exe
 alanwake2.exe
 aplaguetaleinnocence_x64.exe
 aplaguetalerequiem_x64.exe
